@@ -44,6 +44,7 @@
 // This block size will keep the worst case below the max allowed size for a compressed_size option
 //
 #define LZLIB4_BLOCK_SIZE 65280
+#define LZLIB4_MAX_BLOCK_SIZE 0x1F400000
 
 // Block header that contains both compressed and decompressed size.
 struct LZLIB4_BLOCK_HEADER {
@@ -163,19 +164,14 @@ static uint32_t crc_32_tab[] = { /* CRC polynomial 0xedb88320 */
 };
 
 
-/**
- * @brief : Initialize the stream compression state to keep the buffers and the state of the compression
- * 
- * @param strm : lzlib4 stream to initialize
- * @param block_size : wanted block size
- * @param block_mode : defines if block will be filled with data splitting input data, or entire input data will be kept in same block, Defaults LZLIB4_PARTIAL_CONTENT
- * @param compression_level : LZ4HC compression level (1-13). Defaults to LZ4HC_CLEVEL_DEFAULT
- * @return int : returns 0 if all was right, negative number otherwise.
- */
-int lzlib4_compress_init(lzlib4_stream * strm, size_t block_size, lzlib4_block_mode block_mode = LZLIB4_INPUT_SPLIT, uint8_t compression_level = LZ4HC_CLEVEL_DEFAULT);
+class lzlib4 {
+    public:
+        lzlib4(size_t block_size, lzlib4_block_mode block_mode = LZLIB4_INPUT_SPLIT, int8_t compression_level = LZ4HC_CLEVEL_DEFAULT);
+        ~lzlib4();
+        int compress_block(lzlib4_flush_mode flush_mode);
+        int decompress_block(int64_t seek_to_pos, bool check_crc);
+        void close();
+        uint32_t crc32(char *buf, size_t len);
 
-int lzlib4_compress_block(lzlib4_stream * strm, lzlib4_flush_mode flush_mode);
-
-void lzlib4_close(lzlib4_stream * strm);
-
-uint32_t lzlib4_crc32(char *buf, size_t len);
+        lzlib4_stream strm;
+};

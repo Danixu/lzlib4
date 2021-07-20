@@ -17,10 +17,10 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 
-#include "lzlib4_wrapper.h"
+#include "lzlib4.h"
 #include <stdlib.h>
 #include <string.h>
-#include <algorithm>
+#include <iostream>
 
 uint8_t lzlib4_compression_level = LZ4HC_CLEVEL_DEFAULT;
 
@@ -44,13 +44,16 @@ int lzlib4_compress_init(
     strm->state.compress_in_bytes = block_size;
     strm->state.compress_in_buffer = (uint8_t*) malloc(strm->state.compress_in_bytes);
     strm->state.compress_in_index = 0;
-    strm->state.compress_out_bytes = LZ4_COMPRESSBOUND(strm->state.compress_in_bytes); // Worst case
+    strm->state.compress_out_bytes = LZ4_COMPRESSBOUND(strm->state.compress_in_bytes) + sizeof(LZLIB4_BLOCK_HEADER); // Worst case
     strm->state.compress_out_buffer = (uint8_t*) malloc(strm->state.compress_out_bytes);
     
     strm->state.compress_block_mode = block_mode;
 
     // Initializing the LZ4HC stream
     strm->state.strm_lz4 = LZ4_createStreamHC();
+    if (!strm->state.strm_lz4) {
+        //throw std::runtime_error("Error initializing LZ4 compressor.");
+    }
     // Set the block compression
     LZ4_resetStreamHC(strm->state.strm_lz4, compression_level);
 
@@ -63,7 +66,7 @@ int lzlib4_compress_block(lzlib4_stream * strm, lzlib4_flush_mode flush_mode) {
     // LZLIB4_FULL_CONTENT will require that avail_in will fit into the compress buffer
     if (strm->state.compress_block_mode == LZLIB4_INPUT_NOSPLIT && strm->avail_in > strm->state.compress_in_bytes) {
         // FULL data mode is selected and block is bigger than block size.
-        strm->msg = "Input size is bigger than block size.";
+        //strm->msg = "Input size is bigger than block size.";
         return -1;
     }
 
@@ -81,8 +84,6 @@ int lzlib4_compress_block(lzlib4_stream * strm, lzlib4_flush_mode flush_mode) {
         else {
             to_read = std::min(space_left, strm->avail_in);
         }
-
-        printf("Index: %d\n", strm->state.compress_in_index);
 
         if (to_read) {
             memcpy(strm->state.compress_in_buffer + strm->state.compress_in_index, strm->next_in, to_read); // Copy the data
@@ -110,13 +111,23 @@ int lzlib4_compress_block(lzlib4_stream * strm, lzlib4_flush_mode flush_mode) {
             );
 
             if (compressed) {
-                if (compressed > strm->avail_out) {
+                if ((compressed + sizeof(LZLIB4_BLOCK_HEADER)) > strm->avail_out) {
                     // Compressed stream doesn't fit the output buffer, si an error is returned
                     return -1;
                 }
 
+                uint32_t crc = lzlib4_crc32((char *)strm->state.compress_in_buffer, strm->state.compress_in_index);
+                printf("crc: %x\n", crc);
+                // Add block header
+                LZLIB4_BLOCK_HEADER header = {
+                    (uint32_t) compressed, // compressed_size
+                    (uint32_t) strm->state.compress_in_index, // uncompressed_size
+                    crc
+                };
+                memcpy(strm->next_out, &header, sizeof(header));
+
                 // Copy the compressed block to output
-                memcpy(strm->next_out, strm->state.compress_out_buffer, compressed);
+                memcpy(strm->next_out + sizeof(header), strm->state.compress_out_buffer, compressed);
                 // Set the new pointer position and available space
                 strm->next_out += compressed;
                 strm->avail_out -= compressed;
@@ -140,4 +151,33 @@ int lzlib4_compress_block(lzlib4_stream * strm, lzlib4_flush_mode flush_mode) {
     }
 
     return 0;
+}
+
+
+void lzlib4_close(lzlib4_stream * strm) {
+    // Free the lz4 state
+    LZ4_freeStreamHC(strm->state.strm_lz4);
+
+    // Free compression and decompression buffers
+    if (strm->state.compress_in_buffer) {
+        free(strm->state.compress_in_buffer);
+    }
+    if (strm->state.compress_out_buffer) {
+        free(strm->state.compress_out_buffer);
+    }
+    if (strm->state.decompress_buffer) {
+        free(strm->state.decompress_buffer);
+    }
+}
+
+uint32_t lzlib4_crc32(char *buf, size_t len) {
+    register uint32_t oldcrc32;
+
+    oldcrc32 = 0xFFFFFFFF;
+
+    for ( ; len; --len, ++buf) {
+        oldcrc32 = (crc_32_tab[((oldcrc32) ^ ((uint8_t)*buf)) & 0xff] ^ ((oldcrc32) >> 8));
+    }
+
+    return ~oldcrc32;
 }

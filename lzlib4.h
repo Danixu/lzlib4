@@ -29,6 +29,7 @@
  * overhead.
  **/
 
+#include <climits>
 #include "lz4hc.h"
 
 // Block size of uncompressed data. This size must be able to fit into the LZLIB5_BLOCK_HEADER compressed_size variable,
@@ -65,6 +66,15 @@ enum lzlib4_flush_mode : uint8_t {
     LZLIB4_BLOCK,
 };
 
+enum lzlib4_return_code {
+    LZLIB4_RC_OK = 0,
+    LZLIB4_RC_BLOCK_SIZE_ERROR = INT_MIN,
+    LZLIB4_RC_BLOCK_DAMAGED,
+    LZLIB4_RC_BUFFER_ERROR,
+    LZLIB4_RC_COMPRESSION_ERROR,
+    LZLIB4_RC_NEED_MORE_DATA
+};
+
 /**
  * @brief Block fill mode.
  * 
@@ -83,34 +93,48 @@ enum lzlib4_block_mode: uint8_t {
 struct lzlib4_internal_state {
     // Compression buffer
     uint8_t * compress_in_buffer = NULL;
-    size_t compress_in_bytes;
+    size_t compress_in_size = 0;
     size_t compress_in_index = 0;
     uint8_t * compress_out_buffer = NULL;
-    size_t compress_out_bytes;
+    size_t compress_out_size = 0;
 
     lzlib4_block_mode compress_block_mode;
 
     // Decompression buffer
-    uint8_t * decompress_buffer = NULL;
-    size_t decompress_bytes;
-    size_t decompress_index = 0;
+    uint8_t * decompress_in_buffer = NULL;
+    size_t decompress_in_size = 0;
+    size_t decompress_in_size_real = 0;
+    size_t decompress_in_index = 0;
+    uint8_t * decompress_out_buffer = NULL;
+    size_t decompress_out_size = 0;
+    size_t decompress_out_size_real = 0;
+
+    // tmp buffer for partial decompression
+    uint8_t * decompress_tmp_buffer = NULL;
+    size_t decompress_tmp_size = 0;
+    size_t decompress_tmp_size_real = 0;
+    size_t decompress_tmp_index = 0;
 
     // LZ4HC stream status
-    LZ4_streamHC_t * strm_lz4;
+    LZ4_streamHC_t * strm_lz4 = NULL;
+
+    // LZ4 Decode Stream
+    LZ4_streamDecode_t * strm_lz4_decode = NULL;
 };
 
 // Stream state similar to zlib state
 struct lzlib4_stream {
     uint8_t * next_in;   /* next input byte */
     size_t  avail_in;  /* number of bytes available at next_in */
-    size_t  total_in;  /* total number of input bytes read so far */
 
     uint8_t * next_out;  /* next output byte will go here */
     size_t  avail_out; /* remaining free space at next_out */
-    size_t  total_out; /* total number of bytes output so far */
 
     char *msg;  /* last error message, NULL if no error */
     struct lzlib4_internal_state state;
+
+    /* Used to keep a track of the block status while is readed in chunks */
+    bool partial_block = false;
 };
 
 #define UPDC32(octet,crc) (crc_32_tab[((crc)\
@@ -166,12 +190,17 @@ static uint32_t crc_32_tab[] = { /* CRC polynomial 0xedb88320 */
 
 class lzlib4 {
     public:
+        lzlib4();
         lzlib4(size_t block_size, lzlib4_block_mode block_mode = LZLIB4_INPUT_SPLIT, int8_t compression_level = LZ4HC_CLEVEL_DEFAULT);
         ~lzlib4();
-        int compress_block(lzlib4_flush_mode flush_mode);
-        int decompress_block(int64_t seek_to_pos, bool check_crc);
+        int compress(lzlib4_flush_mode flush_mode);
+        int decompress(bool check_crc);
+        int decompress_partial(bool reset, bool check_crc, long long seek_to = -1);
         void close();
-        uint32_t crc32(char *buf, size_t len);
+        uint32_t crc32(uint8_t *buf, size_t len);
 
         lzlib4_stream strm;
+
+    private:
+        uint8_t compression_level = LZ4HC_CLEVEL_DEFAULT;
 };

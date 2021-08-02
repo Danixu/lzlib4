@@ -102,7 +102,7 @@ int lzlib4::compress(lzlib4_flush_mode flush_mode) {
     }
 
     // While there is data in input buffer, create blocks
-    while (strm.avail_in) {
+    while (strm.avail_in || flush_mode) {
         // Only compress if the buffer is filled or flush_mode is LZLIB4_FULL_FLUSH
         bool to_compress = false;
         // Free space in input buffer
@@ -139,6 +139,8 @@ int lzlib4::compress(lzlib4_flush_mode flush_mode) {
             (strm.avail_in == 0 && flush_mode > 0)
         ) {
             to_compress = true;
+            // Remove the flush mode to exit the loop at end
+            flush_mode = LZLIB4_NO_FLUSH;
         }
 
         // If block is ready to compress, then compress it
@@ -425,106 +427,6 @@ int lzlib4::decompress_partial(bool reset, bool check_crc, long long seek_to) {
         strm.avail_out -= to_read;
         strm.next_out += to_read;
     }
-
-
-    /*
-    // Read the header to reserve the tmp buffer
-    LZLIB4_BLOCK_HEADER header;
-
-    // Temporal position keepers
-    uint8_t * bkp_next_out;
-    size_t  bkp_avail_out;
-    uint8_t * bkp_next_in;
-    size_t  bkp_avail_in;
-
-    while (true) {
-        // Get the current block header
-        memcpy(&header, strm.next_in, sizeof(LZLIB4_BLOCK_HEADER));
-
-        // Check if compressed/uncompressed size is too high (possible corrupted header)
-        if (header.compressed_size > LZ4_COMPRESSBOUND(LZLIB4_MAX_BLOCK_SIZE) || header.uncompressed_size > LZLIB4_MAX_BLOCK_SIZE) {
-            printf("Compressed or uncompressed size Out of Bounds\n");
-            return LZLIB4_RC_BLOCK_SIZE_ERROR;
-        }
-
-        // Check if the input buffer contains the entire block
-        if (header.compressed_size > strm.avail_in) {
-            // The block is not complete
-            printf("Block is not complete\n");
-            return LZLIB4_RC_BLOCK_SIZE_ERROR;
-        }
-
-        if (header.crc != strm.state.decompress_tmp_crc) {
-            // Block has changed, so last block must be discarted and a new one decompressed
-            if (header.uncompressed_size > strm.state.decompress_tmp_size_real) {
-                if (strm.state.decompress_tmp_buffer) {
-                    free(strm.state.decompress_tmp_buffer);
-                }
-
-                strm.state.decompress_tmp_buffer = (uint8_t*) malloc(header.uncompressed_size);
-                strm.state.decompress_tmp_size_real = header.uncompressed_size;
-            }
-
-            // Store the stream position into the backup variables
-            bkp_next_out = strm.next_out;
-            bkp_avail_out = strm.avail_out;
-            bkp_next_in = strm.next_in;
-            bkp_avail_in = strm.avail_in;
-
-            strm.next_out = strm.state.decompress_tmp_buffer;
-            strm.avail_out = header.uncompressed_size;
-
-            // Decompress the block
-            int return_code = decompress(check_crc);
-
-            // Recover the original stream positions
-            strm.next_out = bkp_next_out;
-            strm.avail_out = bkp_avail_out;
-            strm.next_in = bkp_next_in;
-            strm.avail_in = bkp_avail_in;
-
-            if (return_code != 0) {
-                // There was an error decompressing the block
-                printf("There was an error decompressing the block: %d\n", return_code);
-                return return_code;
-            }
-
-            strm.state.decompress_tmp_size = header.uncompressed_size;
-            strm.state.decompress_tmp_index = 0;
-            strm.state.decompress_tmp_crc = header.crc;
-        }
-
-        // Set the index position if seek_to is not -1
-        if (seek_to >= 0){
-            strm.state.decompress_tmp_index = seek_to;
-        }
-
-        // Calculate how much data we have to read
-        size_t to_read = header.uncompressed_size - strm.state.decompress_tmp_index;
-        if (to_read > strm.avail_out) {
-            to_read = strm.avail_out;
-        }
-
-        // Copy the data to the output buffer
-        memcpy(strm.next_out, strm.state.decompress_tmp_buffer + strm.state.decompress_tmp_index, to_read);
-
-        strm.next_out += to_read;
-        strm.avail_out -= to_read;
-        strm.state.decompress_tmp_index += to_read;
-
-        // If full block was copied to output buffer, move the input buffer to next block
-        if (strm.state.decompress_tmp_index >= strm.state.decompress_tmp_size) {
-            strm.next_in += sizeof(LZLIB4_BLOCK_HEADER) + header.compressed_size;
-            strm.avail_in -= (sizeof(LZLIB4_BLOCK_HEADER) + header.compressed_size);
-        }
-
-        // There's no more space in output buffer
-        if (strm.avail_out == 0) {
-            break;
-        }
-    }
-
-    */
 
     return 0;
 }

@@ -139,8 +139,6 @@ int lzlib4::compress(lzlib4_flush_mode flush_mode) {
             (strm.avail_in == 0 && flush_mode > 0)
         ) {
             to_compress = true;
-            // Remove the flush mode to exit the loop at end
-            flush_mode = LZLIB4_NO_FLUSH;
         }
 
         // If block is ready to compress, then compress it
@@ -182,6 +180,17 @@ int lzlib4::compress(lzlib4_flush_mode flush_mode) {
                 strm.avail_out -= compressed;
                 // Reset the input index
                 strm.state.compress_in_index = 0;
+
+                // If any flush mode was set
+                if (flush_mode) {
+                    // If flush mode is a full flush, a stream reset is required
+                    if (flush_mode == LZLIB4_FULL_FLUSH) {
+                        // Reset the stream setting the block compression
+                        LZ4_resetStreamHC(strm.state.strm_lz4, compression_level);
+                    }
+                    // Reset the flush mode to exit the loop at end
+                    flush_mode = LZLIB4_NO_FLUSH;
+                }
             }
             else {
                 return LZLIB4_RC_COMPRESSION_ERROR;

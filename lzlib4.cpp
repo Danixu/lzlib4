@@ -467,6 +467,9 @@ void lzlib4::close() {
     if (strm.state.decompress_out_buffer) {
         free(strm.state.decompress_out_buffer);
     }
+    if (strm.state.decompress_tmp_buffer) {
+        free(strm.state.decompress_tmp_buffer);
+    }
 }
 
 
